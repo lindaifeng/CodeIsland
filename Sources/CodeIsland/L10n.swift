@@ -112,6 +112,8 @@ final class L10n: ObservableObject {
         "theme_green": "Green",
         "theme_blue": "Blue",
         "theme_teal": "Teal",
+        "claude_commands": "Claude Commands",
+        "search_commands": "Search commands...",
 
         // Mascots
         "preview_status": "Preview Status",
@@ -284,6 +286,8 @@ final class L10n: ObservableObject {
         "theme_green": "绿色",
         "theme_blue": "蓝色",
         "theme_teal": "青绿色",
+        "claude_commands": "Claude 命令面板",
+        "search_commands": "搜索命令或描述...",
 
         // Mascots
         "preview_status": "预览状态",

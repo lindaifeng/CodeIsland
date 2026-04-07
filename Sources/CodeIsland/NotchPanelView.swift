@@ -53,7 +53,21 @@ struct NotchPanelView: View {
                 if showBar {
                     // Active: compact bar — wider version when expanded
                     HStack(spacing: 0) {
-                        CompactLeftWing(appState: appState, expanded: shouldShowExpanded, mascotSize: mascotSize)
+                        CompactLeftWing(
+                            appState: appState,
+                            expanded: shouldShowExpanded,
+                            mascotSize: mascotSize,
+                            onToggleCommandPanel: {
+                                switch appState.surface {
+                                case .commandPanel:
+                                    withAnimation(NotchAnimation.open) { appState.surface = .sessionList }
+                                case .sessionList:
+                                    withAnimation(NotchAnimation.pop) { appState.surface = .commandPanel }
+                                default:
+                                    break
+                                }
+                            }
+                        )
                         Spacer(minLength: hasNotch && !shouldShowExpanded ? notchW : 0)
                         CompactRightWing(appState: appState, expanded: shouldShowExpanded)
                     }
@@ -129,6 +143,9 @@ struct NotchPanelView: View {
                     case .sessionList:
                         SessionListView(appState: appState, onlySessionId: nil)
                             .transition(.opacity.combined(with: .move(edge: .top)))
+                    case .commandPanel:
+                        ClaudeCommandPanel()
+                            .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .center)))
                     case .collapsed:
                         EmptyView()
                     }
@@ -153,6 +170,7 @@ struct NotchPanelView: View {
                 }
                 switch appState.surface {
                 case .approvalCard, .questionCard: return
+                case .commandPanel: return
                 case .completionCard:
                     // Completion card: mark entered on hover-in, block collapse until entered
                     if hovering {
@@ -185,6 +203,7 @@ struct NotchPanelView: View {
                     hoverTimer?.invalidate()
                     hoverTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: false) { _ in
                         Task { @MainActor in
+                            guard appState.surface == .collapsed else { return }
                             withAnimation(NotchAnimation.open) {
                                 appState.surface = .sessionList
                                 appState.cancelCompletionQueue()
@@ -223,6 +242,7 @@ private struct CompactLeftWing: View {
     var appState: AppState
     let expanded: Bool
     let mascotSize: CGFloat
+    let onToggleCommandPanel: () -> Void
     @AppStorage(SettingsKey.sessionGroupingMode) private var groupingMode = SettingsDefaults.sessionGroupingMode
     @AppStorage(SettingsKey.themeColor) private var themeColorId = SettingsDefaults.themeColor
     private var themeColor: Color { ThemeStyle.color(id: themeColorId) }
@@ -233,8 +253,12 @@ private struct CompactLeftWing: View {
     var body: some View {
         HStack(spacing: 6) {
             if expanded {
-                AppLogoView(size: 36, showBackground: false)
-                if appState.sessions.count > 1 {
+                Button(action: onToggleCommandPanel) {
+                    AppLogoView(size: 36, showBackground: false)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                if appState.surface != .commandPanel && appState.sessions.count > 1 {
                     HStack(spacing: 1) {
                         ForEach([("all", "ALL"), ("status", "STA"), ("cli", "CLI")], id: \.0) { tag, label in
                             let selected = groupingMode == tag
@@ -967,6 +991,139 @@ private struct SessionListView: View {
             content
         }
     }
+}
+
+private struct ClaudeCommandPanel: View {
+    @ObservedObject private var l10n = L10n.shared
+    @AppStorage(SettingsKey.themeColor) private var themeColorId = SettingsDefaults.themeColor
+    @State private var query = ""
+
+    private var themeColor: Color { ThemeStyle.color(id: themeColorId) }
+    private var commands: [ClaudeCommandItem] { ClaudeCommandItem.builtinOrdered }
+
+    private var filteredCommands: [ClaudeCommandItem] {
+        let normalized = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !normalized.isEmpty else { return commands }
+        let tokens = normalized.split(separator: " ").map(String.init)
+        return commands.filter { item in
+            let haystack = "\(item.command) \(item.description)".lowercased()
+            return tokens.allSatisfy { haystack.contains($0) }
+        }
+    }
+
+    var body: some View {
+        VStack(spacing: 8) {
+            HStack(spacing: 6) {
+                ClaudeLogo(size: 13)
+                Text(l10n["claude_commands"])
+                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.9))
+                Text("\(filteredCommands.count)")
+                    .font(.system(size: 9, weight: .medium, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.45))
+                Spacer()
+            }
+            .padding(.horizontal, 14)
+            .padding(.top, 6)
+
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.45))
+                TextField(l10n["search_commands"], text: $query)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 10.5, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.92))
+                    .autocorrectionDisabled()
+            }
+            .padding(.horizontal, 9)
+            .padding(.vertical, 6)
+            .background(
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(Color.white.opacity(0.04))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 6)
+                    .stroke(Color.white.opacity(0.12), lineWidth: 1)
+            )
+            .padding(.horizontal, 14)
+
+            ThinScrollView(maxHeight: 320) {
+                VStack(spacing: 2) {
+                    ForEach(filteredCommands) { item in
+                        ClaudeCommandRow(command: item.command, description: item.description, themeColor: themeColor)
+                    }
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
+            }
+        }
+        .padding(.bottom, 10)
+    }
+}
+
+private struct ClaudeCommandRow: View {
+    let command: String
+    let description: String
+    let themeColor: Color
+    @State private var hovering = false
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 10) {
+            Text(command)
+                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                .foregroundStyle(themeColor)
+                .frame(width: 92, alignment: .leading)
+
+            Text(description)
+                .font(.system(size: 10.5, design: .monospaced))
+                .foregroundStyle(.white.opacity(0.9))
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(
+            RoundedRectangle(cornerRadius: 6)
+                .fill(hovering ? Color.white.opacity(0.07) : Color.clear)
+        )
+        .contentShape(Rectangle())
+        .onHover { h in
+            withAnimation(.easeOut(duration: 0.12)) { hovering = h }
+        }
+    }
+}
+
+private struct ClaudeCommandItem: Identifiable {
+    let command: String
+    let description: String
+    var id: String { command }
+
+    static let builtinOrdered: [ClaudeCommandItem] = [
+        ClaudeCommandItem(command: "/help", description: "显示所有可用命令及说明"),
+        ClaudeCommandItem(command: "/init", description: "生成 CLAUDE.md 项目记忆文件"),
+        ClaudeCommandItem(command: "/model", description: "切换当前会话的 AI 模型"),
+        ClaudeCommandItem(command: "/compact", description: "压缩对话历史，释放上下文窗口"),
+        ClaudeCommandItem(command: "/clear", description: "清空当前会话并开始全新对话"),
+        ClaudeCommandItem(command: "/resume", description: "恢复并切换到历史会话"),
+        ClaudeCommandItem(command: "/rewind", description: "回退到之前的检查点"),
+        ClaudeCommandItem(command: "/status", description: "查看版本、连接状态和账户信息"),
+        ClaudeCommandItem(command: "/cost", description: "查看当前会话 Token 消耗和费用估算"),
+        ClaudeCommandItem(command: "/usage", description: "查看套餐用量与速率限制"),
+        ClaudeCommandItem(command: "/context", description: "查看当前会话上下文占用情况"),
+        ClaudeCommandItem(command: "/memory", description: "编辑 CLAUDE.md 长期记忆文件"),
+        ClaudeCommandItem(command: "/config", description: "查看或修改 Claude Code 全局配置"),
+        ClaudeCommandItem(command: "/doctor", description: "诊断安装状态和本地运行环境"),
+        ClaudeCommandItem(command: "/login", description: "重新进行身份验证"),
+        ClaudeCommandItem(command: "/agent", description: "启动子代理处理专项任务"),
+        ClaudeCommandItem(command: "/plan", description: "进入计划模式后再执行实现"),
+        ClaudeCommandItem(command: "/review", description: "对当前 diff 或文件执行代码审查"),
+        ClaudeCommandItem(command: "/pr", description: "基于当前改动生成 Pull Request"),
+        ClaudeCommandItem(command: "/permissions", description: "查看并管理当前会话权限规则"),
+        ClaudeCommandItem(command: "/vim", description: "开启或关闭 Vim 键位编辑模式"),
+        ClaudeCommandItem(command: "/bug", description: "向 Anthropic 提交问题反馈"),
+        ClaudeCommandItem(command: "/exit", description: "退出 Claude Code 会话"),
+    ]
 }
 
 /// Thin overlay scrollbar via NSScrollView — ignores system "show scrollbar" preference.

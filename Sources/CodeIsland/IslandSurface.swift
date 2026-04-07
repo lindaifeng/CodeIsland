@@ -4,6 +4,8 @@ enum IslandSurface: Equatable {
     case collapsed
     /// 用户主动展开，显示 session 列表
     case sessionList
+    /// Claude 命令面板
+    case commandPanel
     /// 显示权限审批卡片
     case approvalCard(sessionId: String)
     /// 显示问答卡片
@@ -16,7 +18,7 @@ enum IslandSurface: Equatable {
     /// 当前 surface 关联的 session ID（如有）
     var sessionId: String? {
         switch self {
-        case .collapsed, .sessionList: return nil
+        case .collapsed, .sessionList, .commandPanel: return nil
         case .approvalCard(let id), .questionCard(let id), .completionCard(let id): return id
         }
     }
