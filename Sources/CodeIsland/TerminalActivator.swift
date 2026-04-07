@@ -36,27 +36,15 @@ struct TerminalActivator {
     static func activate(session: SessionSnapshot, sessionId: String? = nil) {
         // Native app by bundle ID (e.g. Codex APP vs Codex CLI)
         if let bundleId = session.termBundleId,
-           let appName = nativeAppBundles[bundleId] {
-            if let app = NSWorkspace.shared.runningApplications.first(where: {
-                $0.bundleIdentifier == bundleId
-            }) {
-                if app.isHidden { app.unhide() }
-                app.activate(options: .activateIgnoringOtherApps)
-            } else {
-                bringToFront(appName)
-            }
+           nativeAppBundles[bundleId] != nil {
+            activateByBundleId(bundleId)
             return
         }
 
         // IDE integrated terminal: bring the IDE to front (no tab-level switching)
         if session.isIDETerminal,
            let bundleId = session.termBundleId {
-            if let app = NSWorkspace.shared.runningApplications.first(where: {
-                $0.bundleIdentifier == bundleId
-            }) {
-                if app.isHidden { app.unhide() }
-                app.activate(options: .activateIgnoringOtherApps)
-            }
+            activateByBundleId(bundleId)
             return
         }
 
@@ -66,7 +54,7 @@ struct TerminalActivator {
                 $0.localizedName == appName
             }) {
                 if app.isHidden { app.unhide() }
-                app.activate(options: .activateIgnoringOtherApps)
+                app.activate()
             } else {
                 bringToFront(appName)
             }
@@ -143,7 +131,7 @@ struct TerminalActivator {
         // Ensure app is unhidden and brought to front (Space switching)
         if let app = NSWorkspace.shared.runningApplications.first(where: { $0.bundleIdentifier == "com.mitchellh.ghostty" }) {
             if app.isHidden { app.unhide() }
-            app.activate(options: .activateIgnoringOtherApps)
+            app.activate()
         }
         let escaped = escapeAppleScript(cwd)
         // Match by session ID in title first (disambiguates same-CWD sessions),
@@ -190,7 +178,7 @@ struct TerminalActivator {
     private static func activateITerm(sessionId: String) {
         if let app = NSWorkspace.shared.runningApplications.first(where: { $0.bundleIdentifier == "com.googlecode.iterm2" }) {
             if app.isHidden { app.unhide() }
-            app.activate(options: .activateIgnoringOtherApps)
+            app.activate()
         }
         let script = """
         try
@@ -298,6 +286,21 @@ struct TerminalActivator {
         }
     }
 
+    // MARK: - Activate by bundle ID
+
+    private static func activateByBundleId(_ bundleId: String) {
+        if let app = NSWorkspace.shared.runningApplications.first(where: {
+            $0.bundleIdentifier == bundleId
+        }) {
+            if app.isHidden { app.unhide() }
+            app.activate()
+        }
+        // Also use openApplication for reliable Space switching (Electron apps like VSCode)
+        if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleId) {
+            NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration())
+        }
+    }
+
     // MARK: - Generic (bring app to front)
 
     private static func bringToFront(_ termApp: String) {
@@ -321,7 +324,7 @@ struct TerminalActivator {
             $0.localizedName == name || ($0.bundleIdentifier ?? "").localizedCaseInsensitiveContains(name)
         }) {
             if app.isHidden { app.unhide() }
-            app.activate(options: .activateIgnoringOtherApps)
+            app.activate()
             return
         }
         // Fallback: open -a (app not running yet)
