@@ -98,6 +98,7 @@ final class L10n: ObservableObject {
         "max_visible_sessions_desc": "Sessions beyond this limit will be scrollable",
         "default": "Default",
         "content": "Content",
+        "theme_color": "Theme Color",
         "content_font_size": "Content Font Size",
         "11pt_default": "11pt (Default)",
         "ai_reply_lines": "AI Reply Lines",
@@ -107,6 +108,10 @@ final class L10n: ObservableObject {
         "5_lines": "5 Lines",
         "unlimited": "Unlimited",
         "show_agent_details": "Show Agent Activity Details",
+        "theme_claude": "Orange",
+        "theme_green": "Green",
+        "theme_blue": "Blue",
+        "theme_teal": "Teal",
 
         // Mascots
         "preview_status": "Preview Status",
@@ -265,6 +270,7 @@ final class L10n: ObservableObject {
         "max_visible_sessions_desc": "超出数量的会话将通过滚动查看",
         "default": "默认",
         "content": "内容",
+        "theme_color": "主题色",
         "content_font_size": "内容字体大小",
         "11pt_default": "11pt (默认)",
         "ai_reply_lines": "AI 回复行数",
@@ -274,6 +280,10 @@ final class L10n: ObservableObject {
         "5_lines": "5 行",
         "unlimited": "不限制",
         "show_agent_details": "显示代理活动详情",
+        "theme_claude": "橙色",
+        "theme_green": "绿色",
+        "theme_blue": "蓝色",
+        "theme_teal": "青绿色",
 
         // Mascots
         "preview_status": "预览状态",

@@ -47,7 +47,6 @@ struct NotchPanelView: View {
         let extra: CGFloat = appState.status == .idle ? 0 : 20
         return notchW + wing * 2 + extra
     }
-
     var body: some View {
         VStack(spacing: 0) {
             VStack(spacing: 0) {
@@ -225,6 +224,8 @@ private struct CompactLeftWing: View {
     let expanded: Bool
     let mascotSize: CGFloat
     @AppStorage(SettingsKey.sessionGroupingMode) private var groupingMode = SettingsDefaults.sessionGroupingMode
+    @AppStorage(SettingsKey.themeColor) private var themeColorId = SettingsDefaults.themeColor
+    private var themeColor: Color { ThemeStyle.color(id: themeColorId) }
 
     private var displaySource: String { appState.rotatingSession?.source ?? appState.primarySource }
     private var displayStatus: AgentStatus { appState.rotatingSession?.status ?? appState.status }
@@ -242,7 +243,7 @@ private struct CompactLeftWing: View {
                             } label: {
                                 PixelText(
                                     text: label,
-                                    color: selected ? Color(red: 0.3, green: 0.85, blue: 0.4) : .white.opacity(0.3),
+                                    color: selected ? themeColor : .white.opacity(0.3),
                                     pixelSize: 1.3
                                 )
                                 .padding(.horizontal, 5)
@@ -275,6 +276,8 @@ private struct CompactRightWing: View {
     let expanded: Bool
     @ObservedObject private var l10n = L10n.shared
     @AppStorage(SettingsKey.soundEnabled) private var soundEnabled = SettingsDefaults.soundEnabled
+    @AppStorage(SettingsKey.themeColor) private var themeColorId = SettingsDefaults.themeColor
+    private var themeColor: Color { ThemeStyle.color(id: themeColorId) }
 
     var body: some View {
         HStack(spacing: 6) {
@@ -302,7 +305,7 @@ private struct CompactRightWing: View {
                     let total = appState.totalSessionCount
                     if active > 0 {
                         Text("\(active)")
-                            .foregroundStyle(Color(red: 0.4, green: 1.0, blue: 0.5))
+                            .foregroundStyle(themeColor)
                         Text("/")
                             .foregroundStyle(.white.opacity(0.4))
                     }
@@ -638,8 +641,8 @@ private struct QuestionBar: View {
     @State private var textInput = ""
     @FocusState private var isFocused: Bool
     @State private var selectedIndex: Int? = nil
-
-    private let cyan = Color(red: 0.4, green: 0.7, blue: 1.0)
+    @AppStorage(SettingsKey.themeColor) private var themeColorId = SettingsDefaults.themeColor
+    private var themeColor: Color { ThemeStyle.color(id: themeColorId) }
 
     var body: some View {
         VStack(spacing: 8) {
@@ -668,7 +671,7 @@ private struct QuestionBar: View {
             HStack(spacing: 6) {
                 Text("?")
                     .font(.system(size: 11, weight: .bold, design: .monospaced))
-                    .foregroundStyle(cyan)
+                    .foregroundStyle(themeColor)
                 Text(question)
                     .font(.system(size: 11, weight: .medium, design: .monospaced))
                     .foregroundStyle(.white.opacity(0.9))
@@ -691,7 +694,7 @@ private struct QuestionBar: View {
                 VStack(spacing: 4) {
                     ForEach(Array(options.enumerated()), id: \.offset) { idx, option in
                         let desc = descriptions?.indices.contains(idx) == true ? descriptions?[idx] : nil
-                        OptionRow(index: idx + 1, label: option, description: desc, isSelected: selectedIndex == idx, accent: cyan) {
+                        OptionRow(index: idx + 1, label: option, description: desc, isSelected: selectedIndex == idx, accent: themeColor) {
                             selectedIndex = idx
                             onAnswer(option)
                         }
@@ -703,7 +706,7 @@ private struct QuestionBar: View {
                 HStack(spacing: 6) {
                     Text(">")
                         .font(.system(size: 10, weight: .bold, design: .monospaced))
-                        .foregroundStyle(Color(red: 0.3, green: 0.85, blue: 0.4))
+                        .foregroundStyle(themeColor)
                     TextField(L10n.shared["type_answer"], text: $textInput)
                         .textFieldStyle(.plain)
                         .font(.system(size: 10.5, design: .monospaced))
@@ -1129,6 +1132,8 @@ private struct SessionCard: View {
     @AppStorage(SettingsKey.contentFontSize) private var contentFontSize = SettingsDefaults.contentFontSize
     @AppStorage(SettingsKey.aiMessageLines) private var aiMessageLines = SettingsDefaults.aiMessageLines
     @AppStorage(SettingsKey.showAgentDetails) private var showAgentDetails = SettingsDefaults.showAgentDetails
+    @AppStorage(SettingsKey.themeColor) private var themeColorId = SettingsDefaults.themeColor
+    private var themeColor: Color { ThemeStyle.color(id: themeColorId) }
     private var fontSize: CGFloat { CGFloat(contentFontSize) }
     private var aiLineLimit: Int? { aiMessageLines > 0 ? aiMessageLines : nil }
     private var statusNameColor: Color {
@@ -1136,7 +1141,7 @@ private struct SessionCard: View {
             return Color(red: 1.0, green: 0.45, blue: 0.35)
         }
         switch session.status {
-        case .processing, .running:              return Color(red: 0.3, green: 0.85, blue: 0.4)
+        case .processing, .running:              return themeColor
         case .waitingApproval, .waitingQuestion:  return Color(red: 1.0, green: 0.6, blue: 0.2)
         case .idle:                               return .white
         }
@@ -1216,7 +1221,7 @@ private struct SessionCard: View {
                             HStack(alignment: .top, spacing: 4) {
                                 Text(">")
                                     .font(.system(size: fontSize, weight: .bold, design: .monospaced))
-                                    .foregroundStyle(Color(red: 0.3, green: 0.85, blue: 0.4))
+                                    .foregroundStyle(themeColor)
                                 Text(renderUserText(msg.text))
                                     .font(.system(size: fontSize, weight: .medium, design: .monospaced))
                                     .foregroundStyle(.white.opacity(0.9))
@@ -1227,7 +1232,7 @@ private struct SessionCard: View {
                             HStack(alignment: .top, spacing: 4) {
                                 Text("$")
                                     .font(.system(size: fontSize, weight: .bold, design: .monospaced))
-                                    .foregroundStyle(Color(red: 0.85, green: 0.47, blue: 0.34))
+                                    .foregroundStyle(.white.opacity(0.85))
                                 Text(renderMarkdown(compactText(stripDirectives(msg.text))))
                                     .font(.system(size: fontSize, design: .monospaced))
                                     .foregroundStyle(.white.opacity(0.85))
@@ -1242,7 +1247,7 @@ private struct SessionCard: View {
                         HStack(spacing: 4) {
                             Text("$")
                                 .font(.system(size: fontSize, weight: .bold, design: .monospaced))
-                                .foregroundStyle(Color(red: 0.85, green: 0.47, blue: 0.34))
+                                .foregroundStyle(.white.opacity(0.75))
                             if let tool = session.currentTool {
                                 Text(session.toolDescription ?? tool)
                                     .font(.system(size: fontSize, design: .monospaced))
@@ -1492,8 +1497,8 @@ private struct TerminalJumpButton: View {
     let session: SessionSnapshot
     let sessionId: String
     @State private var hovering = false
-
-    private let green = Color(red: 0.3, green: 0.85, blue: 0.4)
+    @AppStorage(SettingsKey.themeColor) private var themeColorId = SettingsDefaults.themeColor
+    private var themeColor: Color { ThemeStyle.color(id: themeColorId) }
 
     /// Known bundle IDs for IDE/app sources
     private static let sourceBundleIds: [String: String] = [
@@ -1531,18 +1536,18 @@ private struct TerminalJumpButton: View {
                 if let term = session.terminalName {
                     Text(term)
                         .font(.system(size: 9.5, weight: .medium, design: .monospaced))
-                        .foregroundStyle(green)
+                        .foregroundStyle(.white.opacity(0.9))
                 }
                 Image(systemName: "arrow.right")
                     .font(.system(size: 7, weight: .bold))
-                    .foregroundStyle(green.opacity(hovering ? 1.0 : 0.5))
+                    .foregroundStyle(.white.opacity(hovering ? 1.0 : 0.5))
                     .offset(x: hovering ? 2 : 0)
             }
             .padding(.horizontal, 6)
             .padding(.vertical, 3)
             .background(
                 RoundedRectangle(cornerRadius: 5)
-                    .fill(green.opacity(hovering ? 0.18 : 0.08))
+                    .fill(themeColor.opacity(hovering ? 0.18 : 0.08))
             )
         }
         .buttonStyle(.plain)

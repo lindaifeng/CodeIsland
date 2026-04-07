@@ -419,6 +419,7 @@ private struct CLIStatusRow: View {
 private struct AppearancePage: View {
     @ObservedObject private var l10n = L10n.shared
     @AppStorage(SettingsKey.maxVisibleSessions) private var maxVisibleSessions = SettingsDefaults.maxVisibleSessions
+    @AppStorage(SettingsKey.themeColor) private var themeColor = SettingsDefaults.themeColor
     @AppStorage(SettingsKey.contentFontSize) private var contentFontSize = SettingsDefaults.contentFontSize
     @AppStorage(SettingsKey.aiMessageLines) private var aiMessageLines = SettingsDefaults.aiMessageLines
     @AppStorage(SettingsKey.showAgentDetails) private var showAgentDetails = SettingsDefaults.showAgentDetails
@@ -427,6 +428,7 @@ private struct AppearancePage: View {
         Form {
             Section(l10n["preview"]) {
                 AppearancePreview(
+                    themeColorId: themeColor,
                     fontSize: contentFontSize,
                     lineLimit: aiMessageLines,
                     showDetails: showAgentDetails
@@ -447,6 +449,17 @@ private struct AppearancePage: View {
             }
 
             Section(l10n["content"]) {
+                Picker(l10n["theme_color"], selection: $themeColor) {
+                    ForEach(ThemeStyle.options) { option in
+                        HStack(spacing: 6) {
+                            Circle()
+                                .fill(option.color)
+                                .frame(width: 10, height: 10)
+                            Text(l10n[option.titleKey])
+                        }
+                        .tag(option.id)
+                    }
+                }
                 Picker(l10n["content_font_size"], selection: $contentFontSize) {
                     Text("10pt").tag(10)
                     Text(l10n["11pt_default"]).tag(11)
@@ -469,13 +482,13 @@ private struct AppearancePage: View {
 
 /// Live preview mimicking the real SessionCard layout.
 private struct AppearancePreview: View {
+    let themeColorId: String
     let fontSize: Int
     let lineLimit: Int
     let showDetails: Bool
 
     private var fs: CGFloat { CGFloat(fontSize) }
-    private let green = Color(red: 0.3, green: 0.85, blue: 0.4)
-    private let aiColor = Color(red: 0.85, green: 0.47, blue: 0.34)
+    private var themeColor: Color { ThemeStyle.color(id: themeColorId) }
 
     var body: some View {
         HStack(alignment: .center, spacing: 8) {
@@ -497,7 +510,7 @@ private struct AppearancePreview: View {
                 HStack(spacing: 6) {
                     Text("my-project")
                         .font(.system(size: fs + 2, weight: .bold, design: .monospaced))
-                        .foregroundStyle(green)
+                        .foregroundStyle(themeColor)
                     Spacer()
                     Text("3m")
                         .font(.system(size: max(9, fs - 1.5), weight: .medium, design: .monospaced))
@@ -513,7 +526,7 @@ private struct AppearancePreview: View {
                     HStack(alignment: .top, spacing: 4) {
                         Text(">")
                             .font(.system(size: fs, weight: .bold, design: .monospaced))
-                            .foregroundStyle(green)
+                            .foregroundStyle(themeColor)
                         Text("Fix the login bug")
                             .font(.system(size: fs, weight: .medium, design: .monospaced))
                             .foregroundStyle(.white.opacity(0.9))
@@ -523,7 +536,7 @@ private struct AppearancePreview: View {
                     HStack(alignment: .top, spacing: 4) {
                         Text("$")
                             .font(.system(size: fs, weight: .bold, design: .monospaced))
-                            .foregroundStyle(aiColor)
+                            .foregroundStyle(.white.opacity(0.85))
                         Text("I've analyzed the codebase and found the issue in the authentication module. The token validation was skipping the expiry check when refreshing sessions.")
                             .font(.system(size: fs, design: .monospaced))
                             .foregroundStyle(.white.opacity(0.85))
@@ -534,7 +547,7 @@ private struct AppearancePreview: View {
                     HStack(spacing: 4) {
                         Text("$")
                             .font(.system(size: fs, weight: .bold, design: .monospaced))
-                            .foregroundStyle(aiColor)
+                            .foregroundStyle(.white.opacity(0.75))
                         Text("Edit src/auth.ts")
                             .font(.system(size: fs, design: .monospaced))
                             .foregroundStyle(.white.opacity(0.75))
