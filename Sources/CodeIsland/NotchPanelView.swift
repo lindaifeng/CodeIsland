@@ -15,6 +15,7 @@ struct NotchPanelView: View {
 
     /// Delayed hover: prevents accidental expansion when mouse passes through
     @State private var hoverTimer: Timer?
+    @State private var idleHovered = false
 
     private var isActive: Bool { !appState.sessions.isEmpty }
     /// First launch / no-session state should still render a visible marker so the app
@@ -39,7 +40,7 @@ struct NotchPanelView: View {
     /// Total panel width — adapts based on state and screen geometry
     private var panelWidth: CGFloat {
         let maxWidth = min(620, screenWidth - 40)
-        if showIdleIndicator { return notchW + compactWingWidth * 2 }
+        if showIdleIndicator { return idleHovered ? notchW + compactWingWidth * 2 + 80 : notchW + compactWingWidth * 2 }
         if !isActive { return hasNotch ? notchW - 20 : notchW }
         if shouldShowExpanded { return min(max(notchW + 200, 580), maxWidth) }
         let wing = compactWingWidth
@@ -59,30 +60,14 @@ struct NotchPanelView: View {
                     }
                     .frame(height: notchHeight)
                 } else if showIdleIndicator {
-                    HStack(spacing: 0) {
-                        HStack(spacing: 6) {
-                            AppLogoView(size: mascotSize, showBackground: false)
-                                .opacity(0.9)
-                        }
-                        .frame(minWidth: compactWingWidth, alignment: .leading)
-                        .padding(.leading, 6)
-
-                        Spacer(minLength: hasNotch ? notchW : 0)
-
-                        HStack(spacing: 5) {
-                            Circle()
-                                .fill(Color(red: 0.3, green: 0.85, blue: 0.4))
-                                .frame(width: 6, height: 6)
-                            PixelText(
-                                text: "ON",
-                                color: .white.opacity(0.55),
-                                pixelSize: 1.35
-                            )
-                        }
-                        .frame(minWidth: compactWingWidth, alignment: .trailing)
-                        .padding(.trailing, 8)
-                    }
-                    .frame(height: notchHeight)
+                    IdleIndicatorBar(
+                        mascotSize: mascotSize,
+                        compactWingWidth: compactWingWidth,
+                        notchW: notchW,
+                        notchHeight: notchHeight,
+                        hasNotch: hasNotch,
+                        hovered: idleHovered
+                    )
                 } else {
                     // Idle: just the notch shell
                     Spacer()
@@ -162,6 +147,11 @@ struct NotchPanelView: View {
             )
             .contentShape(Rectangle())
             .onHover { hovering in
+                // Idle indicator hover
+                if showIdleIndicator {
+                    withAnimation(NotchAnimation.micro) { idleHovered = hovering }
+                    return
+                }
                 switch appState.surface {
                 case .approvalCard, .questionCard: return
                 case .completionCard:
@@ -349,6 +339,57 @@ private struct NotchIconButton: View {
         .buttonStyle(.plain)
         .onHover { h in withAnimation(NotchAnimation.micro) { hovering = h } }
         .help(tooltip ?? "")
+    }
+}
+
+// MARK: - Idle Indicator Bar
+
+private struct IdleIndicatorBar: View {
+    let mascotSize: CGFloat
+    let compactWingWidth: CGFloat
+    let notchW: CGFloat
+    let notchHeight: CGFloat
+    let hasNotch: Bool
+    let hovered: Bool
+    @ObservedObject private var l10n = L10n.shared
+    @AppStorage(SettingsKey.soundEnabled) private var soundEnabled = SettingsDefaults.soundEnabled
+
+    var body: some View {
+        HStack(spacing: 0) {
+            // Left: mascot
+            HStack(spacing: 6) {
+                MascotView(source: "claude", status: .idle, size: mascotSize)
+                    .opacity(hovered ? 0.9 : 0.5)
+            }
+            .padding(.leading, 6)
+
+            Spacer(minLength: hasNotch ? notchW : 0)
+
+            // Right: expanded shows text + buttons, collapsed shows nothing
+            if hovered {
+                HStack(spacing: 8) {
+                    Text("0")
+                        .font(.system(size: 13, weight: .bold, design: .monospaced))
+                        .foregroundStyle(.white.opacity(0.4))
+
+                    HStack(spacing: 4) {
+                        NotchIconButton(icon: soundEnabled ? "speaker.wave.2" : "speaker.slash", tooltip: soundEnabled ? l10n["mute"] : l10n["enable_sound_tooltip"]) {
+                            soundEnabled.toggle()
+                        }
+                        NotchIconButton(icon: "gearshape", tooltip: l10n["settings"]) {
+                            SettingsWindowController.shared.show()
+                        }
+                        NotchIconButton(icon: "power", tint: Color(red: 1.0, green: 0.4, blue: 0.4), tooltip: l10n["quit"]) {
+                            NSApplication.shared.terminate(nil)
+                        }
+                    }
+                }
+                .padding(.trailing, 6)
+                .transition(.opacity)
+            }
+        }
+        .frame(height: notchHeight)
+        .animation(NotchAnimation.micro, value: hovered)
     }
 }
 

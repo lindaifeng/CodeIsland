@@ -39,6 +39,8 @@ enum PreviewScenario: String, CaseIterable {
     case codebuddy
     case opencode
     case allcli
+    // Special states
+    case idle
     // Performance stress test
     case stress
 }
@@ -77,6 +79,7 @@ enum DebugHarness {
         case .codebuddy: applyCodeBuddy(to: appState)
         case .opencode: applyOpenCode(to: appState)
         case .allcli: applyAllCLI(to: appState)
+        case .idle: applyIdle(to: appState)
         case .stress: applyStress(to: appState)
         }
     }
@@ -462,6 +465,26 @@ enum DebugHarness {
         state.sessions["preview-allcli-8"] = s8
         state.activeSessionId = "preview-allcli-1"
         state.surface = .approvalCard(sessionId: "preview-allcli-5")
+    }
+
+    // MARK: - Idle (no sessions)
+
+    private static func applyIdle(to state: AppState) {
+        // Clear any discovered sessions, stop discovery, and block new events
+        state.stopSessionDiscovery()
+        state.sessions.removeAll()
+        state.activeSessionId = nil
+        state.surface = .collapsed
+        // Continuously clear sessions to block hook events during preview
+        Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { _ in
+            Task { @MainActor in
+                if !state.sessions.isEmpty {
+                    state.sessions.removeAll()
+                    state.activeSessionId = nil
+                    state.surface = .collapsed
+                }
+            }
+        }
     }
 
     // MARK: - Stress Test (30 sessions)
