@@ -1420,6 +1420,8 @@ private struct SessionCard: View {
                 .padding(.leading, 4)
             }
             } // end Column 2 VStack
+            .padding(.trailing, session.contextUsage == nil ? 0 : 12)
+            .padding(.bottom, session.contextUsage == nil ? 0 : 3)
         } // end HStack
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
@@ -1427,6 +1429,14 @@ private struct SessionCard: View {
             RoundedRectangle(cornerRadius: 10)
                 .fill(hovering ? Color.white.opacity(0.10) : Color.white.opacity(0.05))
         )
+        .overlay(alignment: .bottomTrailing) {
+            if let usage = session.contextUsage {
+                ContextUsageBadge(ratio: usage.ratio, themeColor: themeColor)
+                    .padding(.trailing, 11)
+                    .padding(.bottom, 9)
+                    .allowsHitTesting(false)
+            }
+        }
         .padding(.horizontal, 6)
         .contentShape(Rectangle())
         .onHover { h in withAnimation(NotchAnimation.micro) { hovering = h } }
@@ -1464,6 +1474,34 @@ private struct SessionCard: View {
         if seconds < 3600 { return "\(seconds / 60)m" }
         if seconds < 86400 { return "\(seconds / 3600)h" }
         return "\(seconds / 86400)d"
+    }
+}
+
+private struct ContextUsageBadge: View {
+    let ratio: Double
+    let themeColor: Color
+
+    private var normalizedRatio: Double { min(max(ratio, 0), 1) }
+    private var badgeColor: Color {
+        if normalizedRatio >= 0.85 {
+            return themeColor
+        }
+        return .white.opacity(0.45)
+    }
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .stroke(.white.opacity(0.16), lineWidth: 2)
+            Circle()
+                .trim(from: 0, to: normalizedRatio)
+                .stroke(
+                    badgeColor,
+                    style: StrokeStyle(lineWidth: 2, lineCap: .round)
+                )
+                .rotationEffect(.degrees(-90))
+        }
+        .frame(width: 11, height: 11)
     }
 }
 

@@ -11,6 +11,7 @@ struct PersistedSession: Codable {
     let providerSessionId: String?
     let lastUserPrompt: String?
     let lastAssistantMessage: String?
+    let contextUsage: ContextUsageSnapshot?
     let termApp: String?
     let itermSessionId: String?
     let ttyPath: String?
@@ -39,6 +40,7 @@ enum SessionPersistence {
                 providerSessionId: s.providerSessionId,
                 lastUserPrompt: s.lastUserPrompt,
                 lastAssistantMessage: s.lastAssistantMessage,
+                contextUsage: s.contextUsage,
                 termApp: s.termApp,
                 itermSessionId: s.itermSessionId,
                 ttyPath: s.ttyPath,

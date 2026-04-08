@@ -41,6 +41,7 @@ final class AppState {
         return false
     }
     private var modelReadAttempted: Set<String> = []
+    private static let contextDebugEnabled = ProcessInfo.processInfo.environment["CODEISLAND_CONTEXT_DEBUG"] == "1"
 
     var rotatingSessionId: String?
     var rotatingSession: SessionSnapshot? {
@@ -147,6 +148,13 @@ final class AppState {
             if let lastActivity = self.sessions[sessionId]?.lastActivity,
                lastActivity > exitTime { return }
 
+            // Keep completed/idle sessions visible after process exit.
+            // They are cleaned by sessionTimeout/default stale cleanup later.
+            if self.sessions[sessionId]?.status == .idle {
+                return
+            }
+
+            // Non-idle session with dead process and no new activity is stale.
             self.removeSession(sessionId)
         }
     }
@@ -399,6 +407,16 @@ final class AppState {
         }
 
         let sessionId = event.sessionId ?? "default"
+        let normalizedEventName = EventNormalizer.normalize(event.eventName)
+        let contextHints = Self.contextPayloadHints(from: event.rawJSON)
+        let hasDirectContextUsage = extractContextUsage(from: event.rawJSON) != nil
+        let hasTranscriptPath = (event.rawJSON["transcript_path"] as? String)?.isEmpty == false
+        let shouldAwaitTranscriptUsage = (normalizedEventName == "Stop" || normalizedEventName == "AfterAgentResponse")
+            && !hasDirectContextUsage
+            && hasTranscriptPath
+        if Self.contextDebugEnabled && (!contextHints.isEmpty || normalizedEventName == "Stop" || normalizedEventName == "AfterAgentResponse") {
+            print("[ContextUsage] recv event=\(normalizedEventName) session=\(sessionId) hints=\(contextHints.joined(separator: ","))")
+        }
 
         // Skip Codex APP internal sessions (title generation, etc.) — they have no transcript
         if (event.rawJSON["_source"] as? String) == "codex"
@@ -415,6 +433,29 @@ final class AppState {
         let wasWaiting = prevStatus == .waitingApproval || prevStatus == .waitingQuestion
 
         let effects = reduceEvent(sessions: &sessions, event: event, maxHistory: maxHistory)
+        if shouldAwaitTranscriptUsage {
+            // Stop without direct usage payload: clear stale value and wait for transcript fallback.
+            sessions[sessionId]?.contextUsage = nil
+        }
+        if Self.contextDebugEnabled && (!contextHints.isEmpty || normalizedEventName == "Stop" || normalizedEventName == "AfterAgentResponse") {
+            if let usage = sessions[sessionId]?.contextUsage {
+                let percent = Int((usage.ratio * 100).rounded())
+                let used = usage.usedTokens.map(String.init) ?? "?"
+                let total = usage.totalTokens.map(String.init) ?? "?"
+                print("[ContextUsage] parsed event=\(normalizedEventName) session=\(sessionId) ratio=\(percent)% used=\(used) total=\(total)")
+            } else {
+                print("[ContextUsage] parsed-miss event=\(normalizedEventName) session=\(sessionId)")
+                let snapshot = Self.contextDebugSnapshot(from: event.rawJSON)
+                print("[ContextUsage] snapshot event=\(normalizedEventName) session=\(sessionId) \(snapshot)")
+            }
+        }
+
+        recoverContextUsageFromTranscriptIfNeeded(
+            event: event,
+            sessionId: sessionId,
+            normalizedEventName: normalizedEventName,
+            hasDirectContextUsage: hasDirectContextUsage
+        )
 
         // Model transcript read: done AFTER reduceEvent so extractMetadata has filled in cwd
         if sessions[sessionId]?.model == nil && !modelReadAttempted.contains(sessionId) {
@@ -470,6 +511,125 @@ final class AppState {
         scheduleSave()
         startRotationIfNeeded()
         refreshDerivedState()
+    }
+
+    private func recoverContextUsageFromTranscriptIfNeeded(
+        event: HookEvent,
+        sessionId: String,
+        normalizedEventName: String,
+        hasDirectContextUsage: Bool
+    ) {
+        guard normalizedEventName == "Stop" || normalizedEventName == "AfterAgentResponse" else { return }
+        guard !hasDirectContextUsage else { return }
+        guard let transcriptPathRaw = event.rawJSON["transcript_path"] as? String, !transcriptPathRaw.isEmpty else { return }
+        let turnId = event.rawJSON["turn_id"] as? String
+        let source = sessions[sessionId]?.source ?? "unknown"
+
+        if Self.contextDebugEnabled {
+            print("[ContextUsage] transcript-fallback start source=\(source) session=\(sessionId) turn=\(turnId ?? "-") path=\(transcriptPathRaw)")
+        }
+
+        Task.detached {
+            let usage = ContextUsageResolver.readContextUsageFromTranscript(
+                path: transcriptPathRaw,
+                turnId: turnId,
+                source: source,
+                stopEventRaw: event.rawJSON
+            )
+            await MainActor.run { [weak self] in
+                guard let self = self else { return }
+                guard self.sessions[sessionId] != nil else { return }
+
+                if let usage {
+                    self.sessions[sessionId]?.contextUsage = usage
+                    self.scheduleSave()
+                    self.refreshDerivedState()
+                    if Self.contextDebugEnabled {
+                        let percent = Int((usage.ratio * 100).rounded())
+                        let used = usage.usedTokens.map(String.init) ?? "?"
+                        let total = usage.totalTokens.map(String.init) ?? "?"
+                        print("[ContextUsage] transcript-fallback hit source=\(source) session=\(sessionId) ratio=\(percent)% used=\(used) total=\(total)")
+                    }
+                } else if Self.contextDebugEnabled {
+                    print("[ContextUsage] transcript-fallback miss source=\(source) session=\(sessionId)")
+                }
+            }
+        }
+    }
+
+    private static func contextPayloadHints(from raw: [String: Any]) -> [String] {
+        var hints: [String] = []
+        if let usage = raw["usage"] as? [String: Any] {
+            hints.append("usage{\(usage.keys.sorted().joined(separator: "|"))}")
+        }
+        if let tokenCount = raw["token_count"] as? [String: Any] {
+            hints.append("token_count{\(tokenCount.keys.sorted().joined(separator: "|"))}")
+        }
+        if let contextWindow = raw["context_window"] as? [String: Any] {
+            hints.append("context_window{\(contextWindow.keys.sorted().joined(separator: "|"))}")
+        }
+        let topLevelContextKeys = raw.keys.filter {
+            $0.localizedCaseInsensitiveContains("context")
+                || $0.localizedCaseInsensitiveContains("token")
+                || $0.localizedCaseInsensitiveContains("usage")
+                || $0 == "pct"
+                || $0.localizedCaseInsensitiveContains("ratio")
+        }.sorted()
+        if !topLevelContextKeys.isEmpty {
+            hints.append("top{\(topLevelContextKeys.joined(separator: "|"))}")
+        }
+        return hints
+    }
+
+    private static func contextDebugSnapshot(from raw: [String: Any]) -> String {
+        let candidateKeys = raw.keys
+            .filter {
+                $0.localizedCaseInsensitiveContains("context")
+                    || $0.localizedCaseInsensitiveContains("token")
+                    || $0.localizedCaseInsensitiveContains("usage")
+                    || $0.localizedCaseInsensitiveContains("ratio")
+                    || $0.localizedCaseInsensitiveContains("percent")
+                    || $0 == "pct"
+            }
+            .sorted()
+
+        let selected = Array(candidateKeys.prefix(12))
+        var parts: [String] = []
+
+        for key in selected {
+            guard let value = raw[key] else { continue }
+            parts.append("\(key)=\(debugValue(value))")
+        }
+
+        // Structured candidates often hide the real fields.
+        for nestedKey in ["usage", "token_count", "context_window", "context"] {
+            if let dict = raw[nestedKey] as? [String: Any] {
+                let nested = dict.keys.sorted().prefix(12).joined(separator: "|")
+                parts.append("\(nestedKey){\(nested)}")
+            }
+        }
+
+        let keyList = raw.keys.sorted().prefix(40).joined(separator: "|")
+        let core = parts.joined(separator: " ")
+        if core.isEmpty {
+            return "topKeys{\(keyList)}"
+        }
+        return "\(core) topKeys{\(keyList)}"
+    }
+
+    private static func debugValue(_ value: Any) -> String {
+        if let number = value as? NSNumber { return "\(number)" }
+        if let string = value as? String {
+            let compact = string.replacingOccurrences(of: "\n", with: " ")
+            return compact.count > 80 ? "\"\(compact.prefix(80))...\"" : "\"\(compact)\""
+        }
+        if let dict = value as? [String: Any] {
+            return "{\(dict.keys.sorted().prefix(8).joined(separator: "|"))}"
+        }
+        if let array = value as? [Any] {
+            return "[count=\(array.count)]"
+        }
+        return "<\(type(of: value))>"
     }
 
     private func executeEffect(_ effect: SideEffect, sessionId: String) {
@@ -843,6 +1003,7 @@ final class AppState {
             snapshot.providerSessionId = p.providerSessionId
             snapshot.lastUserPrompt = p.lastUserPrompt
             snapshot.lastAssistantMessage = p.lastAssistantMessage
+            snapshot.contextUsage = p.contextUsage
             if let prompt = p.lastUserPrompt {
                 snapshot.addRecentMessage(ChatMessage(isUser: true, text: prompt))
             }

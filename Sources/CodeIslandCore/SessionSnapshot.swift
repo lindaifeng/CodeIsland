@@ -6,6 +6,20 @@ public enum SessionTitleSource: String, Sendable, Codable {
     case claudeAiTitle
 }
 
+public struct ContextUsageSnapshot: Codable, Sendable {
+    public let usedTokens: Int?
+    public let totalTokens: Int?
+    public let ratio: Double
+    public let updatedAt: Date
+
+    public init(usedTokens: Int?, totalTokens: Int?, ratio: Double, updatedAt: Date = Date()) {
+        self.usedTokens = usedTokens
+        self.totalTokens = totalTokens
+        self.ratio = min(max(ratio, 0), 1)
+        self.updatedAt = updatedAt
+    }
+}
+
 public struct SessionSnapshot {
     public static let supportedSources: Set<String> = [
         "claude",
@@ -48,6 +62,7 @@ public struct SessionSnapshot {
     public var providerSessionId: String?
     /// nil = unchecked, false = not YOLO, true = YOLO
     public var isYoloMode: Bool?
+    public var contextUsage: ContextUsageSnapshot?
 
     public init(startTime: Date = Date()) {
         self.startTime = startTime
@@ -453,6 +468,9 @@ public func reduceEvent(
             sessions[sessionId]?.lastAssistantMessage = text
             sessions[sessionId]?.addRecentMessage(ChatMessage(isUser: false, text: text))
         }
+        if let usage = extractContextUsage(from: event.rawJSON) {
+            sessions[sessionId]?.contextUsage = usage
+        }
         sessions[sessionId]?.status = .processing
     case "Stop":
         // Detect ESC/Ctrl+C interruption
@@ -479,6 +497,9 @@ public func reduceEvent(
                 let insertAt = max(0, (sessions[sessionId]?.recentMessages.count ?? 1) - 1)
                 sessions[sessionId]?.insertRecentMessage(ChatMessage(isUser: true, text: prompt), at: insertAt)
             }
+        }
+        if let usage = extractContextUsage(from: event.rawJSON) {
+            sessions[sessionId]?.contextUsage = usage
         }
         effects.append(.enqueueCompletion(sessionId: sessionId))
     case "SessionStart":
@@ -627,6 +648,87 @@ public func extractMetadata(into sessions: inout [String: SessionSnapshot], sess
     if let source = SessionSnapshot.normalizedSupportedSource(event.rawJSON["_source"] as? String) {
         sessions[sessionId]?.source = source
     }
+    if let usage = extractContextUsage(from: event.rawJSON) {
+        sessions[sessionId]?.contextUsage = usage
+    }
+}
+
+public func extractContextUsage(from rawJSON: [String: Any]) -> ContextUsageSnapshot? {
+    if let usage = rawJSON["usage"] as? [String: Any],
+       let parsed = parseContextUsage(from: usage) {
+        return parsed
+    }
+    if let tokenCount = rawJSON["token_count"] as? [String: Any],
+       let parsed = parseContextUsage(from: tokenCount) {
+        return parsed
+    }
+    if let contextWindow = rawJSON["context_window"] as? [String: Any],
+       let parsed = parseContextUsage(from: contextWindow) {
+        return parsed
+    }
+    return parseContextUsage(from: rawJSON)
+}
+
+private func parseContextUsage(from dict: [String: Any]) -> ContextUsageSnapshot? {
+    if let ratioValue = firstNumeric(in: dict, keys: [
+        "context_usage_ratio", "context_ratio", "usage_ratio", "ratio",
+        "percent_used", "pct", "context_usage_percent", "context_used_percent",
+        "context_percentage", "context_percent", "used_percent"
+    ]) {
+        let ratio = ratioValue > 1 ? ratioValue / 100.0 : ratioValue
+        return ContextUsageSnapshot(
+            usedTokens: firstInt(in: dict, keys: [
+                "used_tokens", "context_used_tokens", "input_tokens",
+                "context_tokens", "used", "current_tokens", "token_count"
+            ]),
+            totalTokens: firstInt(in: dict, keys: [
+                "total_tokens", "context_window_tokens", "max_input_tokens",
+                "max_context_tokens", "context_limit", "limit_tokens", "max_tokens"
+            ]),
+            ratio: ratio
+        )
+    }
+
+    if let used = firstInt(in: dict, keys: [
+        "used_tokens", "context_used_tokens", "input_tokens",
+        "context_tokens", "used", "current_tokens", "token_count"
+    ]),
+       let total = firstInt(in: dict, keys: [
+        "total_tokens", "context_window_tokens", "max_input_tokens",
+        "max_context_tokens", "context_limit", "limit_tokens", "max_tokens"
+       ]),
+       total > 0 {
+        return ContextUsageSnapshot(usedTokens: used, totalTokens: total, ratio: Double(used) / Double(total))
+    }
+
+    if let context = dict["context"] as? [String: Any] {
+        return parseContextUsage(from: context)
+    }
+    if let tokenCount = dict["token_count"] as? [String: Any] {
+        return parseContextUsage(from: tokenCount)
+    }
+    if let usage = dict["usage"] as? [String: Any] {
+        return parseContextUsage(from: usage)
+    }
+    return nil
+}
+
+private func firstInt(in dict: [String: Any], keys: [String]) -> Int? {
+    for key in keys {
+        if let value = dict[key] as? Int { return value }
+        if let value = dict[key] as? Double { return Int(value) }
+        if let value = dict[key] as? String, let parsed = Int(value) { return parsed }
+    }
+    return nil
+}
+
+private func firstNumeric(in dict: [String: Any], keys: [String]) -> Double? {
+    for key in keys {
+        if let value = dict[key] as? Double { return value }
+        if let value = dict[key] as? Int { return Double(value) }
+        if let value = dict[key] as? String, let parsed = Double(value) { return parsed }
+    }
+    return nil
 }
 
 /// Handle subagent events. Returns true if the event was consumed.
